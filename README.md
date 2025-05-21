@@ -1,5 +1,9 @@
 # 2025 Computer Vision Final Project
 
+## Overview
+
+refer to [final.txt](final.txt)
+
 ## Setup
 
 ```bash
