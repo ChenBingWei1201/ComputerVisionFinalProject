@@ -1,0 +1,106 @@
+Computer Vision Final Project: Microsoft 3D Reconstruction
+2025.05.09
+3D Reconstruction
+Input: 2D Multi-view Images
+Output: 3D Scene Reconstruction
+Data
+7Scenes contains video sequences of 7 indoor scenes.
+The 7-Scenes dataset is a collection of tracked RGB-D camera frames. All scenes were
+recorded from a handheld Kinect RGB-D camera at 640×480 resolution.
+Each sequence contains:
+· RGB Image: XXX.color.png
+· Pose: XXX.pose.txt
+· Depth: XXX.depth.png
+· Depth Projection: frame-XXXXXX.depth.proj.png
+RGB Image:
+· 24-bit RGB image, 640 x 480
+
+Pose:
+· 4 by 4 matrix (T) which represents the camera-to-world pose
+· P_world = T ⋅ P_camera
+· Pose is usually not available
+
+Depth:
+· 640 x 480 single channel png file
+· Each pixel is a 16-bit integer depth in millimeters
+· Invalid depth is set to 65535
+
+Depth Projection
+· Calibrate the depth information to the view of RGB camera
+
+Intrinsic:
+· fx = 525, fy = 525 , cx = 320, cy = 240
+
+The goal of this project is to reconstruct accurate 3D scenes using the 7-Scenes Dataset and to be ranked on a Leaderboard based on two metrics:
+
+● Accuracy(Acc): Median distance between reconstructed points and ground-truth points.
+● Completeness(Comp): How well the reconstructed scene covers the ground-truth geometry.
+
+You are encouraged to
+· Use any 3D reconstruction method or pretrained model
+· Train from scratch or fine-tune on external datasets
+
+You are not allowed to
+· Directly using pretrained models already trained on the 7-Scenes dataset
+· Fine-tuning any models on the 7-Scenes testing set
+
+Here we provide you some reference work
+· DUSt3R: Geometric 3D Vision Made Easy
+· Fast3R: Towards 3D Reconstruction of 1000+ Images in One Forward Pass
+
+There are two kinds of test sequences
+· Dense test sequences: 500 to 1000 frames
+· Bonus sparse sequences: 10 frames only
+
+We would build the ground truth data with: seq2ply.py
+· The unit of ground truth data is meter
+· But be careful the unit in raw depth file is millimeter
+· We would use kf_every=20 and voxel_grid_size=7.5e-3 to build the ground truth point cloud
+
+How to use the above data?
+· Training/Fine-tuning stage: You may use rgb, depth, or pose
+· Inference/Testing stage: You can only use rgb and depth information!!
+
+Calibrate the test sequence results using the pose of the first frame
+· Assume you have 3D coordinates P_c0 under the first frame's camera view
+· Transform them to world coordinates using P_w=T0⋅P_c0
+
+Evaluation
+Metric1 - Accuracy:
+· For each predicted point…
+	o Find its nearest neighbor in the ground-truth point cloud
+	o Compute the Euclidean distance between the two points
+
+· Take the median of these distances as the Acc score.
+\[ \text{Acc}(P, G) = \text{med}_{p_i \in P} \left[ \min_{g_j \in G} \| p_i - g_j \|_2 \right] \]
+
+\[ P = \{ p_i \}_{i=1}^{N_P} : \text{Predicted Point Cloud} \]
+\[ G = \{ g_j \}_{j=1}^{N_G} : \text{Ground-Truth Point Cloud} \]
+\[ \| \cdot \|_2 : \text{Euclidean Distance} \]
+\[ \text{med}(\cdot) : \text{Median number of a set} \]
+
+Metric2 - Completeness:
+· For each ground-truth point
+	o Find its nearest neighbor in the predicted point cloud
+	o Compute the Euclidean distance between the two points
+· Take the median of these distances as the Comp score.
+\[ \text{Comp}(P, G) = \text{med}_{g_j \in G} \left[ \min_{p_i \in P} \| g_j - p_i \|_2 \right] \]
+
+\[ P = \{ p_i \}_{i=1}^{N_p} : \text{Predicted Point Cloud} \]
+\[ G = \{ g_j \}_{j=1}^{N_G} : \text{Ground-Truth Point Cloud} \]
+\[ \| \cdot \|_2 : \text{Euclidean Distance} \]
+\[ \text{med}\{\cdot\} : \text{Median number of a set} \]
+
+Our project would be held on Codabench
+The competition is available from 05/11 0:00 to 06/01 23:59
+Submit the reconstruction results of dense sequences to Codabench server
+· Store the result as {scene id}-{sequence id}.ply
+· Put all .ply files under a folder named "test"
+· Then zip the folder into “test.zip” and submit it to the codabench server
+· Please visit the competition link for more detailed imformation
+
+For each metric (accuracy and completeness)
+· First compute the average across all dense test sequences within each scene.
+· Then take the mean of per-scene scores for final score
+
+No need to submit sparse(bonus) sequences to Codabench
