@@ -33,8 +33,8 @@ Intrinsic:
 
 The goal of this project is to reconstruct accurate 3D scenes using the 7-Scenes Dataset and to be ranked on a Leaderboard based on two metrics:
 
-● Accuracy(Acc): Median distance between reconstructed points and ground-truth points.
-● Completeness(Comp): How well the reconstructed scene covers the ground-truth geometry.
+· Accuracy(Acc): Median distance between reconstructed points and ground-truth points.
+· Completeness(Comp): How well the reconstructed scene covers the ground-truth geometry.
 
 You are encouraged to
 · Use any 3D reconstruction method or pretrained model
