@@ -2,7 +2,7 @@
 
 ## Overview
 
-refer to [final.txt](final.txt)
+refer to [final.txt](final.txt) or [CV25S_Final-Project_Microsoft-Supplement](https://docs.google.com/presentation/d/17hIktd9Rbl_ip69x1ayngVWhqUK0jtdapnOpk5m8Uik/edit?usp=sharing)
 
 ## Setup
 
