@@ -253,7 +253,7 @@ def visualize_ply_point_cloud(ply_path):
     o3d.visualization.draw_geometries([pcd], point_show_normal=False)
     
 if __name__ == '__main__':
-    sequence_path = _your_sequence_path_
-    ply_path = _your_ply_path_
+    sequence_path = "7SCENES/chess/test/seq-03"
+    ply_path = "test/chess-seq-03.ply"
     seq2ply(sequence_path, ply_path, kf_every =20, voxel_grid_size = 7.5e-3) 
     
