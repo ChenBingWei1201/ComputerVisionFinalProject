@@ -5,13 +5,23 @@ Input: 2D Multi-view Images
 Output: 3D Scene Reconstruction
 Data
 7Scenes contains video sequences of 7 indoor scenes.
-The 7-Scenes dataset is a collection of tracked RGB-D camera frames. All scenes were
-recorded from a handheld Kinect RGB-D camera at 640×480 resolution.
+The 7-Scenes dataset is a collection of tracked RGB-D camera frames. 
+All scenes were recorded from a handheld Kinect RGB-D camera at 640×480 resolution.
+In test folder,
 Each sequence contains:
-· RGB Image: XXX.color.png
-· Pose: XXX.pose.txt
-· Depth: XXX.depth.png
-· Depth Projection: frame-XXXXXX.depth.proj.png
+· RGB Image: frame-000XXX.color.png
+· Pose: frame-000000.pose.txt (only)
+· Depth: frame-000XXX.depth.png
+· Depth Projection: frame-000XXX.depth.proj.png
+In train folder,
+Each sequence contains:
+· RGB Image: frame-000XXX.color.png
+· Pose: frame-000XXX.pose.txt
+· Depth: frame-000XXX.depth.png
+· Depth Projection: frame-000XXX.depth.proj.png
+
+from 000000 to 000999 (total 1000 frames)
+
 RGB Image:
 · 24-bit RGB image, 640 x 480
 
