@@ -5,10 +5,10 @@ from glob import glob
 import open3d as o3d
 
 # Camera intrinsics for 7-Scenes Kinect
-fx = 525.0
-fy = 525.0
-cx = 319.5
-cy = 239.5
+fx = 525
+fy = 525
+cx = 320
+cy = 240
 camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
 
 SCENES_ROOT = "./7SCENES"
@@ -16,7 +16,6 @@ OUTPUT_DIR = "test"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SCENE_LIST = [d for d in os.listdir(SCENES_ROOT) if os.path.isdir(os.path.join(SCENES_ROOT, d))]
-
 FRAME_THRESHOLD = 20  # skip test sequences with <= 20 frames (sparse)
 
 def find_sequences(scene_path):
@@ -41,7 +40,7 @@ def backproject_depth(depth_img, rgb_img):
     z = depth_img / 1000.0  # mm to meters
     x = (i - cx) * z / fx
     y = (j - cy) * z / fy
-    valid = (z > 0) & (z < 10)
+    valid = (z > 0.05) & (z < 15.0)
     xyz = np.stack((x, y, z), axis=-1)[valid]
     rgb = rgb_img[valid]
     return xyz, rgb
@@ -65,6 +64,7 @@ def process_test_sequence(scene, seq_path):
         pts_world = (T0 @ pts_cam_h.T).T[:, :3]
         all_points.append(pts_world)
         all_colors.append(colors)
+
     if all_points:
         all_points = np.concatenate(all_points, axis=0)
         all_colors = np.concatenate(all_colors, axis=0)
@@ -96,4 +96,4 @@ if __name__ == "__main__":
                 print(f"Skipping sparse sequence: {seq_path}")
                 continue
             process_test_sequence(scene, seq_path)
-    print("\nAll dense test sequences processed. Results are in the 'test/' folder, ready for submission.") 
+    print("\nAll dense test sequences processed. Results are in the 'test/' folder, ready for submission.")
