@@ -23,7 +23,7 @@ def find_sequences(scene_path):
 
 def load_frame_files(seq_path):
     color_files = sorted(glob(os.path.join(seq_path, '*.color.png')))
-    depth_files = sorted(glob(os.path.join(seq_path, '*.depth.png')))
+    depth_files = sorted(glob(os.path.join(seq_path, '*.depth.proj.png')))
     pose_files = sorted(glob(os.path.join(seq_path, '*.pose.txt')))
     return list(zip(color_files, depth_files, pose_files))
 
