@@ -40,7 +40,7 @@ def backproject_depth(depth_img, rgb_img):
     z = depth_img / 1000.0  # mm to meters
     x = (i - cx) * z / fx
     y = (j - cy) * z / fy
-    valid = (z > 0.05) & (z < 15.0)
+    valid = (z > 0) & (z < 10)
     xyz = np.stack((x, y, z), axis=-1)[valid]
     rgb = rgb_img[valid]
     return xyz, rgb
