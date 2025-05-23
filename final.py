@@ -16,7 +16,6 @@ OUTPUT_DIR = "test"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SCENE_LIST = [d for d in os.listdir(SCENES_ROOT) if os.path.isdir(os.path.join(SCENES_ROOT, d))]
-FRAME_THRESHOLD = 20  # skip test sequences with <= 20 frames (sparse)
 
 def find_sequences(scene_path):
     test_seqs = sorted([os.path.join(scene_path, 'test', d) for d in os.listdir(os.path.join(scene_path, 'test')) if os.path.isdir(os.path.join(scene_path, 'test', d))])
@@ -80,10 +79,6 @@ def process_test_sequence(scene, seq_path):
 def is_dense_sequence(seq_path):
     seq_name = os.path.basename(seq_path).lower()
     if 'sparse' in seq_name:
-        return False
-    # Count number of color frames
-    color_files = glob(os.path.join(seq_path, '*.color.png'))
-    if len(color_files) <= FRAME_THRESHOLD:
         return False
     return True
 
