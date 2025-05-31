@@ -6,7 +6,6 @@ import open3d as o3d
 from typing import Dict, Tuple, Optional
 import argparse
 from tqdm import tqdm
-import torch
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -20,9 +19,8 @@ class SevenScenes3DReconstructor:
     Combines RGB-D fusion, feature matching, and point cloud optimization.
     """
     
-    def __init__(self, intrinsics=INTRINSIC, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, intrinsics=INTRINSIC):
         self.fx, self.fy, self.cx, self.cy = intrinsics
-        self.device = device
         
         # Build intrinsic matrix
         self.K = np.array([
