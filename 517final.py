@@ -102,25 +102,29 @@ class SevenScenes3DReconstructor:
     ) -> np.ndarray:
         src = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(source_pts))
         tgt = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(target_pts))
-        
+
         transformation = init_T.copy()
-        for voxel in [0.05, 0.02, 0.01]:
+        for voxel, max_iter in zip([0.05, 0.02, 0.01], [20, 20, 20]):
             src_down = src.voxel_down_sample(voxel)
             tgt_down = tgt.voxel_down_sample(voxel)
-            src_down.estimate_normals()
-            tgt_down.estimate_normals()
-            
+            src_down.estimate_normals(
+                o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2, max_nn=30)
+            )
+            tgt_down.estimate_normals(
+                o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2, max_nn=30)
+            )
+
             reg = o3d.pipelines.registration.registration_icp(
                 src_down,
                 tgt_down,
-                max_correspondence_distance=voxel * 2.5,
+                max_correspondence_distance=voxel * 2,
                 init=transformation,
                 estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50),
+                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iter),
             )
-            
             transformation = reg.transformation
         return transformation
+
 
 
     # ------------------------------------------------------------------
@@ -213,7 +217,7 @@ class SevenScenes3DReconstructor:
         sequence_path: str,
         output_path: str,
         kf_every: int = 20,
-        voxel_size: float = 7.5e-3,
+        voxel_size: float = 5e-3,
         max_frames: Optional[int] = None,
     ):
         print(f"=== Reconstructing: {sequence_path}")
@@ -281,7 +285,7 @@ def main():
     parser.add_argument("--sequence", help="sequence path (for single)")
     parser.add_argument("--output", help="output .ply (for single)")
     parser.add_argument("--kf_every", type=int, default=20)
-    parser.add_argument("--voxel_size", type=float, default=7.5e-3)
+    parser.add_argument("--voxel_size", type=float, default=5e-3)
     #517use 5e-3
     parser.add_argument("--max_frames", type=int)
     args = parser.parse_args()
