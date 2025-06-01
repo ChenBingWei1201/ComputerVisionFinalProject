@@ -286,7 +286,7 @@ def main():
     parser.add_argument("--sequence", help="sequence path (for single)")
     parser.add_argument("--output", help="output .ply (for single)")
     parser.add_argument("--kf_every", type=int, default=20)
-    parser.add_argument("--voxel_size", type=float, default=4e-3)
+    parser.add_argument("--voxel_size", type=float, default=5e-3)
     #517use 5e-3
     parser.add_argument("--max_frames", type=int)
     args = parser.parse_args()
