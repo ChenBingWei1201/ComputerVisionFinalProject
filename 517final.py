@@ -114,6 +114,7 @@ class SevenScenes3DReconstructor:
                 o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2, max_nn=30)
             )
 
+
             reg = o3d.pipelines.registration.registration_icp(
                 src_down,
                 tgt_down,
