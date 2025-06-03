@@ -10,9 +10,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# 7-Scenes 內參 (fx, fy, cx, cy)
-INTRINSIC = (525, 525, 320, 240)
-
+# Camera intrinsics for 7-Scenes dataset
+INTRINSIC = (525, 525, 320, 240)  # fx, fy, cx, cy
 
 class SevenScenes3DReconstructor:
     """
@@ -60,7 +59,7 @@ class SevenScenes3DReconstructor:
 
         depth = depth.astype(np.float32) / 1000.0  # mm → m
         depth[depth == 65.535] = 0
-        depth[(depth > 10.0) | (depth < 0.1)] = 0
+        depth[(depth > 4) | (depth < 0.2)] = 0
 
         # pose (only available for first test frame)
         pose_path = osp.join(frame_dir, f"{frame_name}.pose.txt")
@@ -77,49 +76,79 @@ class SevenScenes3DReconstructor:
         rgb: np.ndarray,
         pose: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Back-project depth to 3-D points (camera or world)."""
+        """Back-project depth image to 3D point cloud."""
         h, w = depth.shape
+
+        # Create pixel coordinate grid
         xx, yy = np.meshgrid(np.arange(w), np.arange(h))
+
+        # Valid depth mask
         mask = depth > 0
+
+        # Back-project to 3D camera coordinates
         z = depth[mask]
         x = (xx[mask] - self.cx) * z / self.fx
         y = (yy[mask] - self.cy) * z / self.fy
-        pts_cam = np.stack([x, y, z], axis=-1)
-        cols = rgb[mask] / 255.0
 
+        # Stack to get 3D points in camera frame
+        pts_cam = np.stack([x, y, z], axis=-1)
+
+        # Get corresponding colors
+        colors = rgb[mask] / 255.0
+
+        # Transform to world coordinates if pose is provided
         if pose is not None:
             pts_world = (pose[:3, :3] @ pts_cam.T).T + pose[:3, 3]
-            return pts_world, cols
-        return pts_cam, cols
+            return pts_world, colors
+        
+        return pts_cam, colors
 
     # ------------------------------------------------------------------
     # ICP refinement
     # ------------------------------------------------------------------
     def refine_pose_with_icp(
-        self, source_pts: np.ndarray, target_pts: np.ndarray, init_T: np.ndarray
+        self, source_points: np.ndarray, target_points: np.ndarray, init_T: np.ndarray
     ) -> np.ndarray:
         """
-        Point-to-plane ICP using Open3D.
-        `init_T` is the PnP-estimated transform from frame2 → frame1.
+        Refine initial pose using ICP.
         """
-        src = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(source_pts))
-        tgt = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(target_pts))
-        src = src.voxel_down_sample(0.02)
-        tgt = tgt.voxel_down_sample(0.02)
-        src.estimate_normals()
-        tgt.estimate_normals()
+        # Create Open3D point clouds
+        src = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(source_points))
+        tgt = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(target_points))
 
-        reg = o3d.pipelines.registration.registration_icp(
-            src,
-            tgt,
-            max_correspondence_distance=0.05,
-            init=init_T,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-            criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                max_iteration=20
-            ),
-        )
-        return reg.transformation
+        # Initialize transformation
+        transformation = init_T.copy()
+
+        # Iterate over different voxel sizes and max iterations
+        for voxel, max_iter in zip([0.05, 0.02, 0.01], [20, 20, 20]):
+            src_down = src.voxel_down_sample(voxel)
+            tgt_down = tgt.voxel_down_sample(voxel)
+
+            # Estimate normals for downsampled point clouds
+            src_down.estimate_normals(
+                o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2, max_nn=30)
+            )
+
+            # Estimate normals for downsampled target point cloud
+            tgt_down.estimate_normals(
+                o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2, max_nn=30)
+            )
+
+
+            # Perform ICP registration
+            reg = o3d.pipelines.registration.registration_icp(
+                src_down,
+                tgt_down,
+                max_correspondence_distance=voxel * 2,
+                init=transformation,
+                estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iter),
+            )
+
+            # Update transformation
+            transformation = reg.transformation
+
+        return transformation
 
     # ------------------------------------------------------------------
     # Relative pose (PnP → ICP)
@@ -187,10 +216,10 @@ class SevenScenes3DReconstructor:
         T_rel[:3, 3] = tvec.flatten()
 
         # ------------- ICP refinement -------------
-        src_pts, _ = self.depth_to_pointcloud(frame1["depth"], frame1["rgb"])
-        tgt_pts, _ = self.depth_to_pointcloud(frame2["depth"], frame2["rgb"])
-        if len(src_pts) > 2000 and len(tgt_pts) > 2000:
-            T_rel = self.refine_pose_with_icp(src_pts, tgt_pts, T_rel)
+        src_points, _ = self.depth_to_pointcloud(frame1["depth"], frame1["rgb"])
+        tgt_points, _ = self.depth_to_pointcloud(frame2["depth"], frame2["rgb"])
+        if len(src_points) > 2000 and len(tgt_points) > 2000:
+            T_rel = self.refine_pose_with_icp(src_points, tgt_points, T_rel)
 
         return T_rel
 
@@ -198,9 +227,18 @@ class SevenScenes3DReconstructor:
     # Depth filtering
     # ------------------------------------------------------------------
     def refine_depth_bilateral(self, depth: np.ndarray) -> np.ndarray:
+        """
+        Refine depth map using bilateral filter.
+        """
+        # Convert depth to mm
         depth_mm = (depth * 1000).astype(np.float32)
+
+        # Apply bilateral filter
         depth_f = cv2.bilateralFilter(depth_mm, 5, 10, 5) / 1000.0
+
+        # Set invalid depths to 0
         depth_f[depth == 0] = 0
+
         return depth_f
 
     # ------------------------------------------------------------------
@@ -211,79 +249,117 @@ class SevenScenes3DReconstructor:
         sequence_path: str,
         output_path: str,
         kf_every: int = 20,
-        voxel_size: float = 7.5e-3,
+        voxel_size: float = 5e-3,
         max_frames: Optional[int] = None,
     ):
+        """
+        Reconstruct a sequence of frames.
+        """
+        # Get frame files
         print(f"=== Reconstructing: {sequence_path}")
+
+        # Find all color frames
         frame_files = sorted(f for f in os.listdir(sequence_path) if f.endswith(".color.png"))
+
         if max_frames:
             frame_files = frame_files[: max_frames]
 
+        # Select keyframes
         key_idx = list(range(0, len(frame_files), kf_every))
 
-        poses, comb_pts, comb_cols = [], [], []
+        # Initialize point cloud
+        comb_points, comb_colors = [], []
+        
+        # Keep track of camera poses
+        poses = [] 
 
+        # Process frames
         for i, idx in enumerate(tqdm(key_idx, desc="Keyframes")):
             frame_path = osp.join(sequence_path, frame_files[idx])
+            
+            # Load frame data
             frame = self.load_frame_data(frame_path)
+
+            # Refine depth
             frame["depth"] = self.refine_depth_bilateral(frame["depth"])
 
+            # Estimate pose
             if i == 0:
+                # First frame: use provided pose or identity
                 pose = frame["pose"] if frame["pose"] is not None else np.eye(
                     4, dtype=np.float32
                 )
             else:
+                # Estimate relative pose from previous keyframe
                 prev_path = osp.join(sequence_path, frame_files[key_idx[i - 1]])
                 prev_frame = self.load_frame_data(prev_path)
+                
+                # Get relative transformation
                 T_rel = self.estimate_relative_pose(prev_frame, frame)
+
+                # Chain with previous pose
                 pose = poses[-1] @ np.linalg.inv(T_rel)
 
             poses.append(pose)
 
-            pts, cols = self.depth_to_pointcloud(frame["depth"], frame["rgb"], pose)
-            if len(pts) > 100:
-                pcd_tmp = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
-                pcd_tmp, ind = pcd_tmp.remove_statistical_outlier(20, 2.0)
-                pts, cols = np.asarray(pcd_tmp.points), cols[ind]
+            # Convert to point cloud
+            points, colors = self.depth_to_pointcloud(frame["depth"], frame["rgb"], pose)
 
-            comb_pts.append(pts)
-            comb_cols.append(cols)
+            # Filter outliers locally
+            if len(points) > 100:
+                pcd_tmp = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+                pcd_tmp, ind = pcd_tmp.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+                points, colors = np.asarray(pcd_tmp.points), colors[ind]
 
-        all_pts = np.vstack(comb_pts)
-        all_cols = np.vstack(comb_cols)
-        print(f"Points before filter: {len(all_pts)}")
+            comb_points.append(points)
+            comb_colors.append(colors)
 
-        pcd = o3d.geometry.PointCloud(
-            o3d.utility.Vector3dVector(all_pts)
-        )
-        pcd.colors = o3d.utility.Vector3dVector(all_cols)
-        pcd, _ = pcd.remove_statistical_outlier(30, 1.0)
+        # Combine all points and colors
+        all_points = np.vstack(comb_points)
+        all_colors = np.vstack(comb_colors)
+
+        print(f"Points before filter: {len(all_points)}")
+
+        # Create Open3D point cloud
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(all_points)
+        pcd.colors = o3d.utility.Vector3dVector(all_colors)
+
+        # Remove statistical outliers
+        pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=30, std_ratio=1) # 517改的
+
+        # Voxel downsampling
         pcd = pcd.voxel_down_sample(voxel_size)
 
         print(f"Points after filter : {len(pcd.points)}")
+
+        # Save point cloud
         o3d.io.write_point_cloud(output_path, pcd)
         print(f"Saved: {output_path}")
-        return pcd
 
+        return pcd
 
 # ----------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser("7-Scenes reconstruction")
-    parser.add_argument("--mode", choices=["single", "all"], default="all")
-    parser.add_argument("--sequence", help="sequence path (for single)")
-    parser.add_argument("--output", help="output .ply (for single)")
-    parser.add_argument("--kf_every", type=int, default=20)
-    parser.add_argument("--voxel_size", type=float, default=7.5e-3)
-    parser.add_argument("--max_frames", type=int)
+    parser = argparse.ArgumentParser(description="3D Reconstruction for 7-Scenes Dataset")
+    parser.add_argument("--mode", type=str, choices=["single", "all"], default="all", help="Reconstruction mode: single sequence or all test sequences")
+    parser.add_argument("--sequence", type=str, default=None, help="Path to single sequence (for single)")
+    parser.add_argument("--output", type=str, default=None, help="Path to output .ply (for single)")
+    parser.add_argument("--kf_every", type=int, default=20, help="Keyframe selection interval")
+    parser.add_argument("--voxel_size", type=float, default=5e-3, help="Voxel size for downsampling")
+    parser.add_argument("--max_frames", type=int, default=None, help="Maximum number of frames to process (for debugging)")
+    
     args = parser.parse_args()
 
+    # Initialize reconstructor
     recon = SevenScenes3DReconstructor()
 
     if args.mode == "single":
         if not args.sequence or not args.output:
             parser.error("--sequence and --output are required for single mode")
+        
         recon.reconstruct_sequence(
             args.sequence,
             args.output,
@@ -291,7 +367,7 @@ def main():
             voxel_size=args.voxel_size,
             max_frames=args.max_frames,
         )
-    else:
+    else: # all mode
         test_seqs = [
             ("chess", "seq-03"),
             ("fire", "seq-03"),
@@ -308,10 +384,15 @@ def main():
             ("redkitchen", "seq-14"),
             ("stairs", "seq-01"),
         ]
+
+        # Create output directory
         os.makedirs("test", exist_ok=True)
+
+        # Process each test sequence
         for scene, seq in test_seqs:
             seq_path = f"7SCENES/{scene}/test/{seq}"
             out_path = f"test/{scene}-{seq}.ply"
+
             try:
                 recon.reconstruct_sequence(
                     seq_path,
