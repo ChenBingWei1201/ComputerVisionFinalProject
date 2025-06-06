@@ -350,6 +350,7 @@ def main():
     parser.add_argument("--kf_every", type=int, default=20, help="Keyframe selection interval")
     parser.add_argument("--voxel_size", type=float, default=5e-3, help="Voxel size for downsampling")
     parser.add_argument("--max_frames", type=int, default=None, help="Maximum number of frames to process (for debugging)")
+    parser.add_argument("--set", type=str, default="test", choices=["test", "bonus"], help="Set to process: 'test' or 'bonus' sequences")
     
     args = parser.parse_args()
 
@@ -385,25 +386,47 @@ def main():
             ("stairs", "seq-01"),
         ]
 
+        bonus_seqs = [
+            ("chess", "sparse-seq-05"),
+            ("fire", "sparse-seq-04"),
+            ("pumpkin", "sparse-seq-07"),
+            ("stairs", "sparse-seq-04")
+        ]
+
         # Create output directory
         os.makedirs("test", exist_ok=True)
-
+        os.makedirs("bonus", exist_ok=True)
         # Process each test sequence
-        for scene, seq in test_seqs:
-            seq_path = f"7SCENES/{scene}/test/{seq}"
-            out_path = f"test/{scene}-{seq}.ply"
+        if args.set == "test":
+            for scene, seq in test_seqs:
+                seq_path = f"7SCENES/{scene}/test/{seq}"
+                out_path = f"test/{scene}-{seq}.ply"
 
-            try:
-                recon.reconstruct_sequence(
-                    seq_path,
-                    out_path,
-                    kf_every=args.kf_every,
-                    voxel_size=args.voxel_size,
-                    max_frames=args.max_frames,
-                )
-            except Exception as e:
-                print(f"[ERR] {scene}-{seq}: {e}")
+                try:
+                    recon.reconstruct_sequence(
+                        seq_path,
+                        out_path,
+                        kf_every=args.kf_every,
+                        voxel_size=args.voxel_size,
+                        max_frames=args.max_frames,
+                    )
+                except Exception as e:
+                    print(f"[ERR] {scene}-{seq}: {e}")
 
+        if args.set == "bonus":
+            for scene, seq in bonus_seqs:
+                seq_path = f"7SCENES/{scene}/test/{seq}"
+                out_path = f"bonus/{scene}-{seq}.ply"
 
+                try:
+                    recon.reconstruct_sequence(
+                        seq_path,
+                        out_path,
+                        kf_every=args.kf_every,
+                        voxel_size=args.voxel_size,
+                        max_frames=args.max_frames,
+                    )
+                except Exception as e:
+                    print(f"[ERR] {scene}-{seq}: {e}")
 if __name__ == "__main__":
     main()
