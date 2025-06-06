@@ -112,40 +112,44 @@ class SevenScenes3DReconstructor:
         """
         Refine initial pose using ICP.
         """
-        # Create Open3D point clouds
+        # Create Open3D point clouds from numpy arrays
         src = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(source_points))
         tgt = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(target_points))
 
-        # Initialize transformation
+        # Initialize transformation with PnP result
         transformation = init_T.copy()
 
-        # Iterate over different voxel sizes and max iterations
+        # Multi-scale ICP: coarse (5cm) -> medium (2cm) -> fine (1cm)
+        # Coarse scales avoid local minima, fine scales achieve precision
         for voxel, max_iter in zip([0.05, 0.02, 0.01], [20, 20, 20]):
+            # Downsample point clouds for current scale
+            # Reduces computational cost and provides multi-resolution alignment
             src_down = src.voxel_down_sample(voxel)
             tgt_down = tgt.voxel_down_sample(voxel)
 
-            # Estimate normals for downsampled point clouds
+            # Estimate surface normals for point-to-plane ICP
+            # Uses 2x voxel radius to capture local surface geometry
             src_down.estimate_normals(
                 o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2, max_nn=30)
             )
 
-            # Estimate normals for downsampled target point cloud
+            # Estimate normals for target point cloud as well
             tgt_down.estimate_normals(
                 o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2, max_nn=30)
             )
 
-
-            # Perform ICP registration
+            # Perform point-to-plane ICP registration
+            # Point-to-plane is more accurate than point-to-point for planar surfaces
             reg = o3d.pipelines.registration.registration_icp(
-                src_down,
-                tgt_down,
-                max_correspondence_distance=voxel * 2,
-                init=transformation,
+                src_down,  # Source point cloud (frame1)
+                tgt_down,  # Target point cloud (frame2)
+                max_correspondence_distance=voxel * 2,  # Adaptive threshold based on current scale
+                init=transformation,  # Initialize with previous scale result
                 estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
                 criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iter),
             )
 
-            # Update transformation
+            # Update transformation for next scale iteration
             transformation = reg.transformation
 
         return transformation
@@ -160,65 +164,93 @@ class SevenScenes3DReconstructor:
         Compute T_21 (transform points in frame2 to frame1)
         via feature PnP + optional ICP refinement.
         """
+        # Convert RGB images to grayscale for feature detection
         gray1 = cv2.cvtColor(frame1["rgb"], cv2.COLOR_RGB2GRAY)
         gray2 = cv2.cvtColor(frame2["rgb"], cv2.COLOR_RGB2GRAY)
+        
+        # Extract SIFT features and descriptors from both frames
         kp1, desc1 = self.detector.detectAndCompute(gray1, None)
         kp2, desc2 = self.detector.detectAndCompute(gray2, None)
 
+        # Return identity if no features detected
         if desc1 is None or desc2 is None:
             return np.eye(4, dtype=np.float32)
 
+        # Find feature correspondences using k-nearest neighbors (k=2)
         matches = self.matcher.knnMatch(desc1, desc2, k=2)
+        
+        # Apply Lowe's ratio test to filter good matches
+        # Ratio test: distance to closest / distance to second closest < 0.75
         good = []
         for m_n in matches:
-            if len(m_n) == 2:
+            if len(m_n) == 2:  # Ensure we have 2 nearest neighbors
                 m, n = m_n
-                if m.distance < 0.75 * n.distance:
+                if m.distance < 0.75 * n.distance:  # Lowe's ratio test
                     good.append(m)
+        
+        # Need minimum 20 matches for reliable PnP estimation
         if len(good) < 20:
             return np.eye(4, dtype=np.float32)
 
-        pts1 = np.float32([kp1[m.queryIdx].pt for m in good])
-        pts2 = np.float32([kp2[m.trainIdx].pt for m in good])
+        # Extract 2D pixel coordinates from matched keypoints
+        pts1 = np.float32([kp1[m.queryIdx].pt for m in good])  # Points in frame1
+        pts2 = np.float32([kp2[m.trainIdx].pt for m in good])  # Corresponding points in frame2
 
+        # Build 3D-2D correspondences for PnP
+        # Use depth from frame1 to get 3D points, match with 2D points in frame2
         depth1 = frame1["depth"]
         pts3d, pts2d = [], []
         for (u, v), p2 in zip(pts1, pts2):
             x, y = int(u), int(v)
+            # Check if pixel coordinates are within image bounds
             if 0 <= x < depth1.shape[1] and 0 <= y < depth1.shape[0]:
-                z = depth1[y, x]
-                if z > 0:
+                z = depth1[y, x]  # Get depth value
+                if z > 0:  # Valid depth measurement
+                    # Back-project 2D pixel to 3D point using camera intrinsics
                     pts3d.append(
                         [(u - self.cx) * z / self.fx, (v - self.cy) * z / self.fy, z]
                     )
-                    pts2d.append(p2)
+                    pts2d.append(p2)  # Corresponding 2D point in frame2
+        
+        # Need minimum 10 3D-2D correspondences for PnP
         if len(pts3d) < 10:
             return np.eye(4, dtype=np.float32)
 
+        # Convert to numpy arrays for PnP solver
         pts3d = np.array(pts3d, dtype=np.float32)
         pts2d = np.array(pts2d, dtype=np.float32)
 
+        # Solve PnP with RANSAC to estimate camera pose
+        # Given 3D points in frame1 coordinate system and their 2D projections in frame2
         success, rvec, tvec, _ = cv2.solvePnPRansac(
-            pts3d,
-            pts2d,
-            self.K,
-            None,
-            iterationsCount=1000,
-            reprojectionError=3.0,
-            confidence=0.99,
+            pts3d,  # 3D points in frame1 coordinate system
+            pts2d,  # 2D points in frame2 image
+            self.K,  # Camera intrinsic matrix
+            None,   # No distortion coefficients
+            iterationsCount=1000,      # RANSAC iterations
+            reprojectionError=3.0,     # Inlier threshold in pixels
+            confidence=0.99,           # Desired confidence level
         )
         if not success:
             return np.eye(4, dtype=np.float32)
 
+        # Convert rotation vector to rotation matrix
         R, _ = cv2.Rodrigues(rvec)
+        
+        # Build 4x4 transformation matrix T_21 (frame2 to frame1)
         T_rel = np.eye(4, dtype=np.float32)
-        T_rel[:3, :3] = R
-        T_rel[:3, 3] = tvec.flatten()
+        T_rel[:3, :3] = R         # Rotation part
+        T_rel[:3, 3] = tvec.flatten()  # Translation part
 
         # ------------- ICP refinement -------------
+        # Generate dense point clouds from depth images for ICP alignment
         src_points, _ = self.depth_to_pointcloud(frame1["depth"], frame1["rgb"])
         tgt_points, _ = self.depth_to_pointcloud(frame2["depth"], frame2["rgb"])
+        
+        # Only perform ICP if we have sufficient points (>2000 each)
+        # ICP works better with dense point clouds
         if len(src_points) > 2000 and len(tgt_points) > 2000:
+            # Refine PnP result using multi-scale ICP for better accuracy
             T_rel = self.refine_pose_with_icp(src_points, tgt_points, T_rel)
 
         return T_rel
