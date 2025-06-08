@@ -12,3 +12,10 @@ conda activate cv25s_final
 ```
 
 dataset: [7SCENES.zip](https://drive.google.com/file/d/1IIDaxvauiNtZX49lSckrok82XJchOtD3/view) (21GB)
+
+## Run
+
+```bash
+python final.py --set test # Reconstruct test sequences 
+python final.py --set bonus # Reconstruct bonus sequences 
+```
